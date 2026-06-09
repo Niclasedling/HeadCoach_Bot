@@ -1,0 +1,20 @@
+# Node
+node_modules/
+
+# WhatsApp-session — HEMLIG, ladda ALDRIG upp (= din inloggning)
+auth_info/
+
+# Lokal konfig (kopiera config.example.json -> config.json)
+config.json
+
+# Loggar & temporära förhandsvisningar
+*.log
+_preview_*.png
+_plan_preview.png
+
+# Original-skisser (behövs inte i repot)
+drills/_originals/
+
+# OS-skräp
+.DS_Store
+Thumbs.db

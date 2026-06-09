@@ -1,0 +1,7 @@
+{
+  "allowedGroup": "",
+  "allowedGroupNames": ["DITT GRUPPNAMN HÄR"],
+  "commands": ["övningar", "träningar"],
+  "sendDelayMs": 1500,
+  "cooldownSec": 60
+}

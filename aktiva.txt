@@ -1,0 +1,10 @@
+# En övning per rad = aktiv (postas vid /övningar och /träningar).
+# Rader som börjar med # ignoreras. Namnet måste matcha en mapp i drills/.
+# Ändra den här listan för att byta vad som postas — ingen omstart behövs.
+
+stafett-1mot1
+direkt-skott
+passningsring
+tvamals-sma-mal
+
+tvamals-stora-mal
