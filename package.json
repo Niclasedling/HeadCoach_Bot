@@ -1,14 +1,19 @@
 {
   "name": "headcoach",
   "version": "1.0.0",
+  "private": true,
   "description": "WhatsApp-bot som postar träningsövningar (bild + förklaring) och en stationskarta för ett barnfotbollslag.",
   "main": "index.js",
   "scripts": { "start": "node index.js" },
   "engines": { "node": ">=20" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Niclasedling/HeadCoach_Bot.git"
+  },
   "license": "MIT",
   "author": "Niclas Edling",
   "dependencies": {
-    "@whiskeysockets/baileys": "latest",
+    "@whiskeysockets/baileys": "7.0.0-rc13",
     "@resvg/resvg-js": "^2.6.2",
     "pino": "^9.5.0",
     "qrcode-terminal": "^0.12.0"

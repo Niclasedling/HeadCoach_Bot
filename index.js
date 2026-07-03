@@ -1,5 +1,5 @@
 /**
- * Träningsbot — WhatsApp-bot för pojkar 2019.
+ * HeadCoach — WhatsApp-bot för fotbollstränare (pojkar 2019).
  *
  * Kommandon (måste stå ENSAMMA, utom tränar-kommandon som tar ett namn):
  *   /övningar (el. /träningar) – postar dagens aktiva övningar (bild + text)
@@ -50,16 +50,19 @@ function alreadyHandled(id) {
   if (!id) return false;
   if (recentMsgIds.has(id)) return true;
   recentMsgIds.add(id);
-  if (recentMsgIds.size > 1000) recentMsgIds.clear();
+  if (recentMsgIds.size > 1000) recentMsgIds.delete(recentMsgIds.values().next().value); // äldsta åker ut (FIFO)
   return false;
 }
 
-const subjectCache = new Map();
+// Gruppnamn-cache med TTL: lyckade svar 10 min, tomma/misslyckade 30 s —
+// annars kan ett tillfälligt fel vid uppstart låsa ute gruppen till omstart.
+const subjectCache = new Map(); // jid -> { subj, expiresAt }
 async function groupSubject(sock, jid) {
-  if (subjectCache.has(jid)) return subjectCache.get(jid);
-  let subj = "";
+  const hit = subjectCache.get(jid);
+  if (hit && Date.now() < hit.expiresAt) return hit.subj;
+  let subj = hit?.subj || "";
   try { const meta = await sock.groupMetadata(jid); subj = meta.subject || ""; } catch (_) {}
-  subjectCache.set(jid, subj);
+  subjectCache.set(jid, { subj, expiresAt: Date.now() + (subj ? 600_000 : 30_000) });
   return subj;
 }
 async function isAllowedChat(sock, jid) {
@@ -77,7 +80,7 @@ async function logGroupOnce(sock, jid) {
 async function sendHelp(sock, jid) {
   await sock.sendMessage(jid, {
     text:
-      "🤖 *Träningsbot – kommandon*\n\n" +
+      "🤖 *HeadCoach – kommandon*\n\n" +
       "/övningar  (el. /träningar) – posta dagens aktiva övningar\n" +
       "/lista – visa alla övningar (✅ aktiv / ⬜ inaktiv)\n" +
       "/plan – stationskarta 7-manna (hel plan)\n" +
@@ -137,6 +140,17 @@ async function sendActiveDrills(sock, jid) {
   }
 }
 
+/** Plockar fram innehållet ur wrappers — t.ex. grupper med försvinnande meddelanden. */
+function unwrapMessage(message) {
+  let m = message;
+  for (let i = 0; i < 3 && m; i++) {
+    const inner = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message;
+    if (!inner) break;
+    m = inner;
+  }
+  return m || message;
+}
+
 async function handleMessage(sock, m) {
   if (!m.message) return;
   if (alreadyHandled(m.key && m.key.id)) return;
@@ -144,7 +158,8 @@ async function handleMessage(sock, m) {
   if (!jid || jid === "status@broadcast") return;
   const fromMe = !!(m.key && m.key.fromMe);
 
-  const text = (m.message.conversation || m.message.extendedTextMessage?.text || "").trim();
+  const msg = unwrapMessage(m.message);
+  const text = (msg.conversation || msg.extendedTextMessage?.text || "").trim();
   if (!text) return;
   if (jid.endsWith("@g.us")) await logGroupOnce(sock, jid);
 
@@ -184,19 +199,41 @@ async function handleMessage(sock, m) {
   }
 }
 
+// Återanslutning med guard (aldrig två sockets samtidigt) och exponentiell
+// backoff 3s → 60s. Utan catch här dör processen på nätfel mitt i en reconnect.
+let activeSock = null;
+let reconnectTimer = null;
+let reconnectDelayMs = 3000;
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  console.log(`   Nytt försök om ${Math.round(reconnectDelayMs / 1000)}s…`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    start().catch((e) => { console.error("Återanslutning misslyckades:", e.message); scheduleReconnect(); });
+  }, reconnectDelayMs);
+  reconnectDelayMs = Math.min(reconnectDelayMs * 2, 60_000);
+}
+
 async function start() {
   const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, "auth_info"));
-  const { version } = await fetchLatestBaileysVersion();
-  console.log("Baileys WA-version:", version.join("."));
+  let version;
+  try {
+    ({ version } = await fetchLatestBaileysVersion());
+    console.log("Baileys WA-version:", version.join("."));
+  } catch (_) {
+    console.log("Kunde inte hämta senaste WA-version (offline?) — använder inbyggd.");
+  }
   const sock = makeWASocket({
-    version, auth: state, logger: pino({ level: "silent" }),
-    markOnlineOnConnect: false, browser: ["Träningsbot", "Chrome", "1.0.0"],
+    ...(version ? { version } : {}), auth: state, logger: pino({ level: "silent" }),
+    markOnlineOnConnect: false, browser: ["HeadCoach", "Chrome", "1.0.0"],
   });
+  activeSock = sock;
   sock.ev.on("creds.update", saveCreds);
   sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) { console.log("\nSkanna QR-koden med WhatsApp → Länkade enheter:\n"); qrcode.generate(qr, { small: true }); }
     if (connection === "open") {
+      reconnectDelayMs = 3000; // nollställ backoff
       const active = loadActiveDrills(__dirname).map((d) => d.title);
       console.log("✅ Ansluten.");
       console.log(`   Aktiva övningar (${active.length}): ${active.join(", ") || "inga"}`);
@@ -208,7 +245,7 @@ async function start() {
       const loggedOut = code === DisconnectReason.loggedOut;
       console.log(`Anslutning stängd (kod ${code}). ${loggedOut ? "Utloggad." : "Återansluter…"}`);
       if (loggedOut) console.log("Radera mappen auth_info/ och starta om för att länka på nytt.");
-      else setTimeout(start, 3000);
+      else scheduleReconnect();
     }
   });
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
@@ -217,5 +254,12 @@ async function start() {
   });
 }
 
-if (require.main === module) start().catch((e) => console.error("Fatalt fel vid start:", e));
+if (require.main === module) {
+  process.on("SIGINT", () => {
+    console.log("\nStänger av HeadCoach…");
+    try { activeSock?.end(); } catch (_) {}
+    process.exit(0);
+  });
+  start().catch((e) => { console.error("Fatalt fel vid start:", e); scheduleReconnect(); });
+}
 module.exports = { start };

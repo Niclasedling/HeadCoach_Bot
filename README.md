@@ -25,8 +25,8 @@ En tränare skriver `/övningar` i gruppen → boten postar dagens övningar som
 Kräver **Node.js 20+**.
 
 ```bash
-git clone <ditt-repo>
-cd headcoach
+git clone https://github.com/Niclasedling/HeadCoach_Bot.git
+cd HeadCoach_Bot
 npm install
 cp config.example.json config.json    # Windows: copy config.example.json config.json
 # öppna config.json och fyll i ert gruppnamn
